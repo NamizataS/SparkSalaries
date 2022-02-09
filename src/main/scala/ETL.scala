@@ -5,6 +5,7 @@ case class ETL(){
   val spark:SparkSession = SparkSession.builder().master("local[*]").getOrCreate()
   this.spark.sparkContext.setLogLevel("ERROR")
 
+  // 3 functions to extract our three files
   def extract_salaries():DataFrame={
     val salaries_file = "./datas/Levels_Fyi_Salary_Data.csv"
     Extract(this.spark).extract(salaries_file)
@@ -20,6 +21,11 @@ case class ETL(){
     Extract(this.spark).extract(cities_file)
   }
 
+  /**
+   * Revenues file in a dataframe. Transform it by lowering all the values in the column name and filters the dataset
+   *
+   */
+
   def transform_revenues(df_revenues:DataFrame):DataFrame={
     val transform = Transform(this.spark)
     val revenues = transform.lowerString(df_revenues, "Name")
@@ -27,18 +33,29 @@ case class ETL(){
     transform.changeColumnName(top_companies, "Year", "date")
   }
 
+  /**
+   * Salaries file in a dataframe. Transform it by dropping some columns, transforming timestamps and get only the year
+   * and joins salaries dataset and revenues dataset.
+   *
+   */
+
   def transform_salaries(df_salaries:DataFrame, df_transformed_revenues:DataFrame):DataFrame={
     val transform = Transform(this.spark)
-    val columnsToDrop = List("tag", "stockgrantvalue", "gender", "otherdetails", "cityid", "dmaid",
+    val columnsToDrop = List("tag", "stockgrantvalue", "otherdetails", "cityid", "dmaid",
       "rowNumber", "Some_College", "Race_Asian", "Race_White", "Race_Two_Or_More", "Race_Black",
       "Race_Hispanic", "Race", "Masters_Degree", "Bachelors_Degree", "Doctorate_Degree", "Highschool")
     var salaries = transform.dropColumns(df_salaries, columnsToDrop)
     salaries = transform.stringToTimestamp(salaries, "timestamp", "timestamp")
     salaries = transform.getYear(salaries, "timestamp", "year")
-    var top_salaries_companies = transform.joinDataset((salaries, df_transformed_revenues), salaries("company") <=> df_transformed_revenues("Name") &&
+    val top_salaries_companies = transform.joinDataset((salaries, df_transformed_revenues), salaries("company") <=> df_transformed_revenues("Name") &&
       salaries("year") <=> df_transformed_revenues("date"))
     transform.dropColumns(top_salaries_companies, List("date", "Name"))
   }
+
+  /**
+   * Given the cities in the salaries dataset, get the coordinates of the cities.
+   *
+   */
 
   def transform_cities(df_cities:DataFrame, df_transformed_salaries:DataFrame):DataFrame={
     val transform = Transform(this.spark)
@@ -50,12 +67,17 @@ case class ETL(){
     transform.select_columns(joinedCities, columnsToKeep)
   }
 
+  /**
+   * The function which will execute the whole ETL architecture: load the files in Spark, apply some transformations to those datas
+   * using the functions we previously created and then load them in our destination location.
+   *
+   */
 
   def etl(): Unit ={
     //Extract
-    var salaries = this.extract_salaries()
-    var revenues = this.extract_revenues()
-    var cities = this.extract_cities()
+    val salaries = this.extract_salaries()
+    val revenues = this.extract_revenues()
+    val cities = this.extract_cities()
     //Transform
     val transformedRevenues = this.transform_revenues(revenues)
     val transformedSalaries = this.transform_salaries(salaries, transformedRevenues)
